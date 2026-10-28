@@ -1,0 +1,2 @@
+"""Storage node service package."""
+

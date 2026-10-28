@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: distributed-storage
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: storage-config
+  namespace: distributed-storage
+data:
+  METADATA_URL: http://metadata:9000
+  STORAGE_NODES: storage-node-0.storage-node=http://storage-node-0.storage-node:8000,storage-node-1.storage-node=http://storage-node-1.storage-node:8000,storage-node-2.storage-node=http://storage-node-2.storage-node:8000,storage-node-3.storage-node=http://storage-node-3.storage-node:8000,storage-node-4.storage-node=http://storage-node-4.storage-node:8000,storage-node-5.storage-node=http://storage-node-5.storage-node:8000
+  ELASTICSEARCH_URL: http://elasticsearch:9200
+  RABBITMQ_MANAGEMENT_URL: http://rabbitmq:15672
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: storage-secrets
+  namespace: distributed-storage
+type: Opaque
+stringData:
+  DATABASE_URL: REPLACE_WITH_RDS_POSTGRESQL_URL
+  API_KEYS: REPLACE_WITH_SECURE_API_KEY
+  RABBITMQ_USER: REPLACE_WITH_RABBITMQ_USER
+  RABBITMQ_PASSWORD: REPLACE_WITH_RABBITMQ_PASSWORD
+

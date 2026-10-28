@@ -1,0 +1,7 @@
+{"title":"Distributed Storage","uid":"distributed-storage","schemaVersion":39,"version":1,"panels":[
+{"type":"timeseries","title":"Request throughput","targets":[{"expr":"rate(gateway_requests_total[1m])"}],"gridPos":{"x":0,"y":0,"w":12,"h":8}},
+{"type":"timeseries","title":"Average request latency","targets":[{"expr":"rate(gateway_request_latency_seconds_sum[1m]) / sum by (method, route) (rate(gateway_requests_total[1m]))"}],"gridPos":{"x":12,"y":0,"w":12,"h":8}},
+{"type":"stat","title":"Free disk bytes","targets":[{"expr":"sum(storage_node_disk_free_bytes)"}],"gridPos":{"x":0,"y":8,"w":8,"h":6}},
+{"type":"stat","title":"Degraded chunks","targets":[{"expr":"storage_degraded_chunks"}],"gridPos":{"x":8,"y":8,"w":8,"h":6}},
+{"type":"timeseries","title":"Repair rate","targets":[{"expr":"rate(storage_repairs_total[5m])"}],"gridPos":{"x":16,"y":8,"w":8,"h":6}}
+]}

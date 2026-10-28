@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: Storage Framework
+    folder: Distributed Storage
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

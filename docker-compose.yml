@@ -1,0 +1,269 @@
+x-storage-node: &storage-node
+  build:
+    context: .
+    dockerfile: Dockerfile.storage
+  restart: unless-stopped
+  healthcheck:
+    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
+    interval: 5s
+    timeout: 3s
+    retries: 5
+    start_period: 5s
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  gateway1:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    command: ["uvicorn", "gateway.app:app", "--host", "0.0.0.0", "--port", "8080"]
+    restart: unless-stopped
+    environment:
+      METADATA_URL: http://metadata:9000
+      API_KEYS: dev-secret-key
+      RATE_LIMIT_REQUESTS: 100
+      RATE_LIMIT_WINDOW_SECONDS: 60
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_INDEX: object-metadata
+    depends_on:
+      metadata:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  gateway2:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    command: ["uvicorn", "gateway.app:app", "--host", "0.0.0.0", "--port", "8080"]
+    restart: unless-stopped
+    environment:
+      METADATA_URL: http://metadata:9000
+      API_KEYS: dev-secret-key
+      RATE_LIMIT_REQUESTS: 100
+      RATE_LIMIT_WINDOW_SECONDS: 60
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_INDEX: object-metadata
+    depends_on:
+      metadata:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      gateway1:
+        condition: service_healthy
+      gateway2:
+        condition: service_healthy
+      ui:
+        condition: service_started
+
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: storage
+      RABBITMQ_DEFAULT_PASS: storage
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ./config/rabbitmq-definitions.json:/etc/rabbitmq/definitions.json:ro
+      - ./config/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  maintenance-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    command: ["python", "-m", "workers.jobs", "work"]
+    restart: unless-stopped
+    environment:
+      RABBITMQ_MANAGEMENT_URL: http://rabbitmq:15672
+      RABBITMQ_USER: storage
+      RABBITMQ_PASSWORD: storage
+      METADATA_URL: http://metadata:9000
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      metadata:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: storage_metadata
+      POSTGRES_USER: storage
+      POSTGRES_PASSWORD: storage
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/01-test-database.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U storage -d storage_metadata"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  metadata:
+    build:
+      context: .
+      dockerfile: Dockerfile.metadata
+    command: ["uvicorn", "metadata_service.app:app", "--host", "0.0.0.0", "--port", "9000"]
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://storage:storage@postgres:5432/storage_metadata
+      STORAGE_NODES: node1=http://node1:8000,node2=http://node2:8000,node3=http://node3:8000,node4=http://node4:8000,node5=http://node5:8000,node6=http://node6:8000
+      REPLICATION_FACTOR: 3
+      READ_QUORUM: 2
+      WRITE_QUORUM: 2
+      DATA_SHARDS: 4
+      PARITY_SHARDS: 2
+      HEARTBEAT_TIMEOUT_SECONDS: 15
+      REPAIR_INTERVAL_SECONDS: 10
+      SCRUB_INTERVAL_SECONDS: 30
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  node1:
+    <<: *storage-node
+    ports:
+      - "8001:8000"
+    environment:
+      NODE_ID: node1
+      METADATA_URL: http://metadata:9000/heartbeats
+    volumes:
+      - ./data/node1:/data
+
+  node2:
+    <<: *storage-node
+    ports:
+      - "8002:8000"
+    environment:
+      NODE_ID: node2
+      METADATA_URL: http://metadata:9000/heartbeats
+    volumes:
+      - ./data/node2:/data
+
+  node3:
+    <<: *storage-node
+    ports:
+      - "8003:8000"
+    environment:
+      NODE_ID: node3
+      METADATA_URL: http://metadata:9000/heartbeats
+    volumes:
+      - ./data/node3:/data
+
+  node4:
+    <<: *storage-node
+    ports:
+      - "8004:8000"
+    environment:
+      NODE_ID: node4
+      METADATA_URL: http://metadata:9000/heartbeats
+    volumes:
+      - ./data/node4:/data
+
+  node5:
+    <<: *storage-node
+    ports:
+      - "8005:8000"
+    environment:
+      NODE_ID: node5
+      METADATA_URL: http://metadata:9000/heartbeats
+    volumes:
+      - ./data/node5:/data
+
+  node6:
+    <<: *storage-node
+    ports:
+      - "8006:8000"
+    environment:
+      NODE_ID: node6
+      METADATA_URL: http://metadata:9000/heartbeats
+    volumes:
+      - ./data/node6:/data
+
+volumes:
+  postgres-data:
+  elasticsearch-data:
+  rabbitmq-data:
+  prometheus-data:
+  grafana-data:
+

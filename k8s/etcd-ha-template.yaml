@@ -1,0 +1,66 @@
+# DEPLOYMENT TEMPLATE ONLY. The current metadata service still uses PostgreSQL.
+apiVersion: v1
+kind: Service
+metadata:
+  name: storage-etcd
+spec:
+  clusterIP: None
+  selector:
+    app: storage-etcd
+  ports:
+    - {name: client, port: 2379}
+    - {name: peer, port: 2380}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: storage-etcd
+spec:
+  serviceName: storage-etcd
+  replicas: 3
+  selector:
+    matchLabels:
+      app: storage-etcd
+  template:
+    metadata:
+      labels:
+        app: storage-etcd
+    spec:
+      containers:
+        - name: etcd
+          image: quay.io/coreos/etcd:v3.5.15
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              exec etcd --name "$HOSTNAME"
+              --data-dir /var/lib/etcd
+              --listen-client-urls http://0.0.0.0:2379
+              --advertise-client-urls "http://$HOSTNAME.storage-etcd:2379"
+              --listen-peer-urls http://0.0.0.0:2380
+              --initial-advertise-peer-urls "http://$HOSTNAME.storage-etcd:2380"
+              --initial-cluster
+              storage-etcd-0=http://storage-etcd-0.storage-etcd:2380,storage-etcd-1=http://storage-etcd-1.storage-etcd:2380,storage-etcd-2=http://storage-etcd-2.storage-etcd:2380
+              --initial-cluster-state new
+          ports:
+            - {name: client, containerPort: 2379}
+            - {name: peer, containerPort: 2380}
+          readinessProbe:
+            exec:
+              command: ["etcdctl", "endpoint", "health"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: client
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          volumeMounts:
+            - {name: etcd-data, mountPath: /var/lib/etcd}
+  volumeClaimTemplates:
+    - metadata:
+        name: etcd-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi

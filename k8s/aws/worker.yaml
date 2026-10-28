@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: maintenance-worker
+  namespace: distributed-storage
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: maintenance-worker}
+  template:
+    metadata:
+      labels: {app: maintenance-worker}
+    spec:
+      containers:
+        - name: worker
+          image: REPLACE_WITH_AWS_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/storage-worker:section8
+          env:
+            - {name: METADATA_URL, value: "http://metadata:9000"}
+            - {name: RABBITMQ_MANAGEMENT_URL, valueFrom: {configMapKeyRef: {name: storage-config, key: RABBITMQ_MANAGEMENT_URL}}}
+            - {name: RABBITMQ_USER, valueFrom: {secretKeyRef: {name: storage-secrets, key: RABBITMQ_USER}}}
+            - {name: RABBITMQ_PASSWORD, valueFrom: {secretKeyRef: {name: storage-secrets, key: RABBITMQ_PASSWORD}}}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+

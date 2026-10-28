@@ -1,0 +1,2 @@
+{"queues":[{"name":"maintenance","vhost":"/","durable":true,"auto_delete":false,"arguments":{}}]}
+

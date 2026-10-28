@@ -1,0 +1,62 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: storage-gp3
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+parameters: {type: gp3, encrypted: "true"}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: storage-node
+  namespace: distributed-storage
+spec:
+  clusterIP: None
+  selector: {app: storage-node}
+  ports: [{name: http, port: 8000}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: storage-node
+  namespace: distributed-storage
+spec:
+  serviceName: storage-node
+  replicas: 6
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels: {app: storage-node}
+  template:
+    metadata:
+      labels: {app: storage-node}
+    spec:
+      containers:
+        - name: storage-node
+          image: REPLACE_WITH_AWS_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/storage-node:section8
+          command: ["/bin/sh", "-c"]
+          args: ['export NODE_ID="$HOSTNAME"; exec uvicorn storage_node.app:app --host 0.0.0.0 --port 8000']
+          env:
+            - {name: STORAGE_PATH, value: /data}
+            - {name: METADATA_URL, value: "http://metadata:9000/heartbeats"}
+          ports: [{name: http, containerPort: 8000}]
+          resources:
+            requests: {cpu: 200m, memory: 256Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts: [{name: chunk-data, mountPath: /data}]
+  volumeClaimTemplates:
+    - metadata: {name: chunk-data}
+      spec:
+        storageClassName: storage-gp3
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests: {storage: 100Gi}
+

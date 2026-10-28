@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: storage-node
+spec:
+  clusterIP: None
+  selector:
+    app: storage-node
+  ports:
+    - name: http
+      port: 8000
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: storage-node
+spec:
+  serviceName: storage-node
+  replicas: 6
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: storage-node
+  template:
+    metadata:
+      labels:
+        app: storage-node
+    spec:
+      containers:
+        - name: storage-node
+          image: distributed-storage:section7
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - export NODE_ID="$HOSTNAME"; exec uvicorn storage_node.app:app --host 0.0.0.0 --port 8000
+          env:
+            - name: STORAGE_PATH
+              value: /data
+            - name: METADATA_URL
+              value: http://metadata:9000/heartbeats
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: chunk-data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: chunk-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+

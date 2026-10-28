@@ -1,0 +1,17 @@
+# Python virtual environment
+.venv/
+
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Runtime storage data
+data/

@@ -1,0 +1,10 @@
+FROM python:3.12-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /app
+COPY requirements-worker.txt .
+RUN pip install --no-cache-dir -r requirements-worker.txt
+COPY workers ./workers
+RUN useradd --create-home --uid 10001 worker
+USER worker
+CMD ["python", "-m", "workers.jobs", "work"]
+

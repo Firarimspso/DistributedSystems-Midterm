@@ -1,0 +1,15 @@
+FROM python:3.12-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /app
+COPY requirements.txt .
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gcc libc6-dev \
+    && pip install --no-cache-dir -r requirements.txt \
+    && apt-get purge -y --auto-remove gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+COPY metadata_service ./metadata_service
+RUN useradd --create-home --uid 10001 metadata
+USER metadata
+EXPOSE 9000
+CMD ["uvicorn", "metadata_service.app:app", "--host", "0.0.0.0", "--port", "9000"]
+
